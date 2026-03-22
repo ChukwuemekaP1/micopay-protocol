@@ -107,7 +107,7 @@ function App() {
   return (
     <div className="flex flex-col min-h-screen bg-[#F4FAFF]">
       {currentPage === 'home' && (
-        <Home onNavigateCashout={startCashout} onNavigateDeposit={startDeposit} />
+        <Home onNavigateCashout={startCashout} onNavigateDeposit={startDeposit} token={buyerUser?.token ?? null} />
       )}
 
       {/* Cashout Flow */}

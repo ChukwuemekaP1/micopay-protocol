@@ -25,7 +25,9 @@
       "Bash(cp:*)",
       "Bash(soroban:*)",
       "Bash(~/.cargo/bin/stellar --version)",
-      "Bash(npm show:*)"
+      "Bash(npm show:*)",
+      "Bash(pkill:*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }

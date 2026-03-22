@@ -93,6 +93,75 @@ export async function callLockOnChain(params: {
 }
 
 /**
+ * Call the escrow contract's release() function on testnet.
+ * Platform signs as buyer (demo — same account as seller).
+ * trade_id = sha256(secret_hash_bytes), matching compute_trade_id() in the contract.
+ */
+export async function callReleaseOnChain(params: {
+  tradeIdBytes: Buffer;  // 32 bytes: sha256(secret_hash_bytes)
+  secretBytes: Buffer;   // 32 bytes: raw HTLC preimage
+}): Promise<{ txHash: string }> {
+  const {
+    Contract, TransactionBuilder, Networks, Keypair,
+    nativeToScVal, rpc: rpcModule,
+  } = await import('@stellar/stellar-sdk');
+
+  const { tradeIdBytes, secretBytes } = params;
+
+  const rpc = new rpcModule.Server(config.stellarRpcUrl);
+  const keypair = Keypair.fromSecret(config.platformSecretKey);
+  const platformAddress = keypair.publicKey();
+
+  const account = await rpc.getAccount(platformAddress);
+  const contract = new Contract(config.escrowContractId);
+
+  const tx = new TransactionBuilder(account, {
+    fee: '1000000',
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(
+      contract.call(
+        'release',
+        nativeToScVal(tradeIdBytes, { type: 'bytes' }),
+        nativeToScVal(secretBytes, { type: 'bytes' }),
+      ),
+    )
+    .setTimeout(60)
+    .build();
+
+  const prepared = await rpc.prepareTransaction(tx);
+  prepared.sign(keypair);
+
+  const sendResult = await rpc.sendTransaction(prepared);
+  if (sendResult.status === 'ERROR') {
+    throw new Error(`Release failed: ${JSON.stringify(sendResult.errorResult)}`);
+  }
+
+  const txHash = sendResult.hash;
+
+  // Poll via Horizon (same pattern as lock)
+  const horizonUrl = `https://horizon-testnet.stellar.org/transactions/${txHash}`;
+  for (let i = 0; i < 15; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    try {
+      const res = await fetch(horizonUrl);
+      if (res.ok) {
+        const data = await res.json() as { successful: boolean };
+        if (data.successful) {
+          console.log(`[Stellar] Release confirmed: ${txHash}`);
+          return { txHash };
+        }
+        throw new Error(`Release transaction failed on-chain: ${txHash}`);
+      }
+    } catch (err: any) {
+      if (err.message.includes('failed on-chain')) throw err;
+    }
+  }
+
+  throw new Error(`Release tx ${txHash} not confirmed within 30s`);
+}
+
+/**
  * Legacy mock used when MOCK_STELLAR=true.
  */
 export async function verifyLockOnChain(

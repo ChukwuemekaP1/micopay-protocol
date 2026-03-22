@@ -1,7 +1,8 @@
 import db from '../db/schema.js';
 import { config } from '../config.js';
 import { generateTradeSecret, encryptSecret, decryptSecret } from './secret.service.js';
-import { callLockOnChain, verifyLockOnChain } from './stellar.service.js';
+import { createHash } from 'crypto';
+import { callLockOnChain, callReleaseOnChain, verifyLockOnChain } from './stellar.service.js';
 import { NotFoundError, ForbiddenError, ConflictError, BadRequestError } from '../utils/errors.js';
 
 // --- Trade lifecycle ---
@@ -85,6 +86,18 @@ export async function getActiveTrades(userId: string) {
      WHERE (seller_id = $1 OR buyer_id = $1)
        AND status IN ('pending', 'locked', 'revealing')
      ORDER BY created_at DESC`,
+    [userId],
+  );
+}
+
+export async function getTradeHistory(userId: string) {
+  return db.getMany(
+    `SELECT id, status, amount_mxn, platform_fee_mxn, lock_tx_hash, release_tx_hash,
+            created_at, completed_at, seller_id, buyer_id
+     FROM trades
+     WHERE (seller_id = $1 OR buyer_id = $1)
+     ORDER BY created_at DESC
+     LIMIT 20`,
     [userId],
   );
 }
@@ -190,7 +203,7 @@ export async function getTradeSecret(tradeId: string, userId: string, ip: string
   return { secret, qr_payload: qrPayload, expires_in: 120 };
 }
 
-export async function completeTrade(tradeId: string, userId: string, releaseTxHash: string) {
+export async function completeTrade(tradeId: string, userId: string) {
   const trade = await db.getOne('SELECT * FROM trades WHERE id = $1', [tradeId]);
   if (!trade) throw new NotFoundError('Trade not found');
   if (trade.buyer_id !== userId) throw new ForbiddenError('Only the buyer can complete');
@@ -198,7 +211,24 @@ export async function completeTrade(tradeId: string, userId: string, releaseTxHa
     throw new ConflictError(`Trade is ${trade.status}, expected revealing`);
   }
 
-  // Clear the encrypted secret from DB (no longer needed)
+  // Decrypt the HTLC secret stored at lock time
+  const secret = decryptSecret(trade.secret_enc, trade.secret_nonce);
+
+  let releaseTxHash: string;
+
+  if (!config.mockStellar) {
+    // Compute trade_id as the contract does: sha256(secret_hash_bytes)
+    const secretHashBytes = Buffer.from(trade.secret_hash, 'hex');
+    const tradeIdBytes = createHash('sha256').update(secretHashBytes).digest();
+    const secretBytes = Buffer.from(secret, 'hex');
+
+    const result = await callReleaseOnChain({ tradeIdBytes, secretBytes });
+    releaseTxHash = result.txHash;
+  } else {
+    releaseTxHash = `mock_release_${Date.now()}`;
+  }
+
+  // Clear encrypted secret from DB now that release is confirmed on-chain
   await db.execute(
     `UPDATE trades
      SET status = 'completed',
@@ -210,7 +240,7 @@ export async function completeTrade(tradeId: string, userId: string, releaseTxHa
     [tradeId, releaseTxHash],
   );
 
-  return { status: 'completed' };
+  return { status: 'completed', release_tx_hash: releaseTxHash };
 }
 
 export async function cancelTrade(tradeId: string, userId: string) {

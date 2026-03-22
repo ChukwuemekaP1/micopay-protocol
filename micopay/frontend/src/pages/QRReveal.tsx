@@ -13,7 +13,6 @@ interface QRRevealProps {
 }
 
 const QRReveal = ({ activeTrade, sellerToken, buyerToken, amount, onBack, onChat, onSuccess }: QRRevealProps) => {
-    const [pin, setPin] = useState<string>('');
     const [isConfirming, setIsConfirming] = useState(false);
     const [qrPayload, setQrPayload] = useState<string>('MICOPAY:DEMO:mock_secret_for_ui_preview');
     const [secretLoaded, setSecretLoaded] = useState(false);
@@ -33,19 +32,9 @@ const QRReveal = ({ activeTrade, sellerToken, buyerToken, amount, onBack, onChat
             });
     }, [activeTrade, sellerToken]);
 
-    const handlePinClick = (num: string) => {
-        if (isConfirming) return;
-        if (pin.length < 4) {
-            const newPin = pin + num;
-            setPin(newPin);
-            if (newPin.length === 4) {
-                setIsConfirming(true);
-                completePurchase();
-            }
-        }
-    };
-
     const completePurchase = async () => {
+        if (isConfirming) return;
+        setIsConfirming(true);
         try {
             if (activeTrade && buyerToken) {
                 await completeTrade(activeTrade.id, buyerToken);
@@ -56,10 +45,6 @@ const QRReveal = ({ activeTrade, sellerToken, buyerToken, amount, onBack, onChat
         } finally {
             setTimeout(() => onSuccess(), 1500);
         }
-    };
-
-    const handleBackspace = () => {
-        if (!isConfirming) setPin(pin.slice(0, -1));
     };
 
     return (
@@ -152,52 +137,23 @@ const QRReveal = ({ activeTrade, sellerToken, buyerToken, amount, onBack, onChat
                     </div>
                 </section>
 
-                {/* PIN Section */}
+                {/* Confirm Section */}
                 <section className="mb-10 text-center">
-                    <label className="text-[11px] font-bold text-outline uppercase tracking-[0.2em] mb-6 block">Ingresa tu PIN para confirmar</label>
-                    <div className="flex justify-center gap-6 mb-10">
-                        {[0, 1, 2, 3].map((i) => (
-                            <div
-                                key={i}
-                                className={`w-3.5 h-3.5 rounded-full transition-all duration-300 ${
-                                    pin.length > i ? 'bg-primary scale-125 shadow-[0_0_12px_rgba(0,105,76,0.4)]' : 'bg-outline-variant/30'
-                                }`}
-                            />
-                        ))}
-                    </div>
-
                     {!isConfirming ? (
-                        <div className="grid grid-cols-3 gap-y-4 gap-x-8 max-w-[280px] mx-auto">
-                            {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
-                                <button
-                                    key={num}
-                                    onClick={() => handlePinClick(num)}
-                                    className="h-16 w-16 flex items-center justify-center text-2xl font-bold text-on-surface hover:bg-surface-container-low rounded-full transition-all active:scale-90"
-                                >
-                                    {num}
-                                </button>
-                            ))}
-                            <div className="h-16 w-16"></div>
-                            <button
-                                onClick={() => handlePinClick('0')}
-                                className="h-16 w-16 flex items-center justify-center text-2xl font-bold text-on-surface hover:bg-surface-container-low rounded-full transition-all active:scale-90"
-                            >
-                                0
-                            </button>
-                            <button
-                                onClick={handleBackspace}
-                                className="h-16 w-16 flex items-center justify-center text-on-surface hover:bg-surface-container-low rounded-full transition-all active:scale-90"
-                            >
-                                <span className="material-symbols-outlined text-2xl">backspace</span>
-                            </button>
-                        </div>
+                        <button
+                            onClick={completePurchase}
+                            className="w-full py-4 rounded-2xl bg-primary text-on-primary font-bold text-base flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                        >
+                            <span className="material-symbols-outlined" style={{ fontVariationSettings: '"FILL" 1' }}>check_circle</span>
+                            Ya recibí el efectivo
+                        </button>
                     ) : (
-                        <div className="mt-10 flex flex-col items-center gap-3">
+                        <div className="flex flex-col items-center gap-3 py-4">
                             <div className="relative w-8 h-8">
                                 <div className="absolute inset-0 border-4 border-surface-container-high rounded-full"></div>
                                 <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                             </div>
-                            <p className="text-sm font-medium text-outline">Confirmando en Soroban...</p>
+                            <p className="text-sm font-medium text-outline">Confirmando intercambio…</p>
                         </div>
                     )}
                 </section>

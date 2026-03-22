@@ -45,11 +45,17 @@ export async function tradeRoutes(app: FastifyInstance) {
    */
   app.get('/trades/active', async (request) => {
     const trades = await tradeService.getActiveTrades(request.user.id);
-
-    // Strip secret fields
     const safeTrades = trades.map(({ secret_enc, secret_nonce, ...t }: any) => t);
-
     return { trades: safeTrades };
+  });
+
+  /**
+   * GET /trades/history
+   * All trades (active + completed) for the authenticated user, newest first.
+   */
+  app.get('/trades/history', async (request) => {
+    const trades = await tradeService.getTradeHistory(request.user.id);
+    return { trades };
   });
 
   /**
@@ -99,23 +105,11 @@ export async function tradeRoutes(app: FastifyInstance) {
 
   /**
    * POST /trades/:id/complete
-   * Buyer confirms release happened on-chain.
+   * Buyer confirms cash received. Backend calls release() on Soroban and returns the tx hash.
    */
-  app.post('/trades/:id/complete', {
-    schema: {
-      body: {
-        type: 'object',
-        required: ['release_tx_hash'],
-        properties: {
-          release_tx_hash: { type: 'string' },
-        },
-        additionalProperties: false,
-      },
-    },
-  }, async (request) => {
+  app.post('/trades/:id/complete', async (request) => {
     const { id } = request.params as { id: string };
-    const { release_tx_hash } = request.body as { release_tx_hash: string };
-    return tradeService.completeTrade(id, request.user.id, release_tx_hash);
+    return tradeService.completeTrade(id, request.user.id);
   });
 
   /**

@@ -71,9 +71,27 @@ export async function getSecret(
 }
 
 export async function completeTrade(tradeId: string, buyerToken: string): Promise<void> {
-  await http.post(
-    `/trades/${tradeId}/complete`,
-    { release_tx_hash: `tx_complete_${Date.now()}` },
-    authHeaders(buyerToken),
-  );
+  await http.post(`/trades/${tradeId}/complete`, {}, authHeaders(buyerToken));
+}
+
+export interface TradeHistoryItem {
+  id: string;
+  status: string;
+  amount_mxn: number;
+  platform_fee_mxn: number;
+  lock_tx_hash: string | null;
+  release_tx_hash: string | null;
+  created_at: string;
+  seller_id: string;
+  buyer_id: string;
+}
+
+export async function getTradeHistory(token: string): Promise<TradeHistoryItem[]> {
+  const res = await http.get('/trades/history', authHeaders(token));
+  return res.data.trades;
+}
+
+export async function getAccountBalance(): Promise<{ xlm: string; address: string }> {
+  const res = await http.get('/account/balance');
+  return res.data;
 }

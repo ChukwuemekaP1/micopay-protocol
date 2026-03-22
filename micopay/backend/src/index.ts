@@ -71,6 +71,21 @@ app.get('/health', async () => ({
   mockStellar: config.mockStellar,
 }));
 
+// Platform account balance from Horizon (public, no auth needed)
+app.get('/account/balance', async () => {
+  const { Keypair } = await import('@stellar/stellar-sdk');
+  const address = Keypair.fromSecret(config.platformSecretKey).publicKey();
+  try {
+    const res = await fetch(`https://horizon-testnet.stellar.org/accounts/${address}`);
+    if (!res.ok) return { xlm: '0', address };
+    const data = await res.json() as { balances: { asset_type: string; balance: string }[] };
+    const xlm = data.balances.find((b) => b.asset_type === 'native')?.balance ?? '0';
+    return { xlm, address };
+  } catch {
+    return { xlm: '0', address };
+  }
+});
+
 app.register(authRoutes, { prefix: '' });
 app.register(userRoutes, { prefix: '' });
 app.register(tradeRoutes, { prefix: '' });
