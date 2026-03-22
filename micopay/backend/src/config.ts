@@ -22,7 +22,10 @@ function loadEnv() {
   }
 }
 
-loadEnv();
+// Load .env file only in development if not in CI/Production
+if (process.env.NODE_ENV !== 'production') {
+  loadEnv();
+}
 
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
