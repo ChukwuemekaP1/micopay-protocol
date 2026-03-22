@@ -63,9 +63,9 @@ const QRReveal = ({ activeTrade, sellerToken, buyerToken, amount, onBack, onChat
     };
 
     return (
-        <div className="bg-white font-body text-on-surface min-h-screen">
+        <div className="bg-surface font-body text-on-surface min-h-screen">
             {/* Top Navigation */}
-            <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 backdrop-blur-md bg-white/80 border-b border-surface-container-low">
+            <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 backdrop-blur-md bg-white/90 border-b border-outline-variant/20">
                 <div className="flex items-center gap-3">
                     <button onClick={onBack} className="p-2 hover:bg-surface-container-low rounded-full transition-colors">
                         <span className="material-symbols-outlined text-primary">arrow_back</span>
@@ -128,14 +128,14 @@ const QRReveal = ({ activeTrade, sellerToken, buyerToken, amount, onBack, onChat
 
                 {/* QR Section */}
                 <section className="mb-10 text-center">
-                    <h2 className="text-[11px] font-bold text-outline uppercase tracking-[0.2em] mb-6">TU CÓDIGO DE INTERCAMBIO</h2>
-                    <div className="bg-[#F6F7F8] p-8 rounded-[32px] inline-block mx-auto mb-6">
+                    <h2 className="text-[11px] font-bold text-outline-variant uppercase tracking-[0.2em] mb-6">TU CÓDIGO DE INTERCAMBIO</h2>
+                    <div className="bg-surface-container-low p-8 rounded-[32px] inline-block mx-auto mb-6 border border-outline-variant/10 shadow-sm">
                         {/* Real QR generated from HTLC secret */}
                         <QRCodeSVG
                             value={qrPayload}
                             size={224}
-                            bgColor="#F6F7F8"
-                            fgColor="#1A2830"
+                            bgColor="transparent"
+                            fgColor="#1A1C1E"
                             level="M"
                             style={{ borderRadius: '12px' }}
                         />
@@ -159,8 +159,8 @@ const QRReveal = ({ activeTrade, sellerToken, buyerToken, amount, onBack, onChat
                         {[0, 1, 2, 3].map((i) => (
                             <div
                                 key={i}
-                                className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                                    pin.length > i ? 'bg-[#00694C] scale-125 shadow-[0_0_12px_rgba(0,105,76,0.3)]' : 'bg-[#D2E5F1]'
+                                className={`w-3.5 h-3.5 rounded-full transition-all duration-300 ${
+                                    pin.length > i ? 'bg-primary scale-125 shadow-[0_0_12px_rgba(0,105,76,0.4)]' : 'bg-outline-variant/30'
                                 }`}
                             />
                         ))}
@@ -203,7 +203,7 @@ const QRReveal = ({ activeTrade, sellerToken, buyerToken, amount, onBack, onChat
                 </section>
 
                 <footer className="mt-12 text-center pb-10">
-                    <p className="text-xs text-outline leading-relaxed px-4">
+                    <p className="text-[12px] text-outline leading-relaxed px-6 font-medium">
                         Si no se confirma en 30 min, la operación se cancelará automáticamente y tus fondos serán liberados.
                     </p>
                 </footer>

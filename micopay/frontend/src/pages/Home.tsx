@@ -7,9 +7,9 @@ interface HomeProps {
 
 const Home = ({ onNavigateCashout, onNavigateDeposit }: HomeProps) => {
     return (
-        <div className="bg-surface-lowest text-on-surface font-body min-h-screen flex flex-col">
+        <div className="bg-surface text-on-surface font-body min-h-screen flex flex-col">
             {/* TopAppBar */}
-            <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80">
+            <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 backdrop-blur-md bg-white/90">
                 <Logo />
                 <div className="flex items-center gap-4">
                     <span className="material-symbols-outlined text-primary p-2 rounded-full hover:bg-surface-container-low transition-colors cursor-pointer">
@@ -29,7 +29,7 @@ const Home = ({ onNavigateCashout, onNavigateDeposit }: HomeProps) => {
             <main className="flex-1 mt-20 px-6 pb-32">
                 {/* Saludo */}
                 <section className="mb-8">
-                    <h1 className="font-headline font-extrabold text-3xl text-[#1A2830] leading-tight mb-1">
+                    <h1 className="font-headline font-extrabold text-3xl text-on-surface leading-tight mb-1">
                         Hola, Juan 👋
                     </h1>
                     <p className="text-on-surface-variant font-medium opacity-70">
@@ -38,9 +38,9 @@ const Home = ({ onNavigateCashout, onNavigateDeposit }: HomeProps) => {
                 </section>
 
                 {/* Balance Card (The Signature Element) */}
-                <div className="bg-surface-dark rounded-[18px] p-6 relative overflow-hidden mb-10 shadow-lg">
+                <div className="bg-primary rounded-[24px] p-6 relative overflow-hidden mb-10 shadow-xl shadow-primary/20">
                     {/* Organic Node Watermark */}
-                    <div className="absolute -right-8 -bottom-8 opacity-10 pointer-events-none">
+                    <div className="absolute -right-8 -bottom-8 opacity-20 pointer-events-none text-white">
                         <svg fill="none" height="180" viewBox="0 0 24 24" width="180" xmlns="http://www.w3.org/2000/svg">
                             <circle cx="7" cy="7" r="3" stroke="#D4E4EC" strokeWidth="1.5"></circle>
                             <circle cx="17" cy="17" r="3" stroke="#D4E4EC" strokeWidth="1.5"></circle>
@@ -48,7 +48,7 @@ const Home = ({ onNavigateCashout, onNavigateDeposit }: HomeProps) => {
                         </svg>
                     </div>
                     <div className="flex justify-between items-start relative z-10 mb-6">
-                        <p className="text-[10px] font-bold tracking-[0.15em] text-[#D4E4EC]/60 uppercase">
+                        <p className="text-[10px] font-bold tracking-[0.15em] text-white/70 uppercase">
                             SALDO MXN · STELLAR
                         </p>
                         <div className="flex items-center justify-center bg-white/10 rounded-full p-1">
@@ -56,12 +56,12 @@ const Home = ({ onNavigateCashout, onNavigateDeposit }: HomeProps) => {
                         </div>
                     </div>
                     <div className="relative z-10 mb-4">
-                        <h2 className="text-[32px] font-semibold text-[#D4E4EC] tracking-tight">
+                        <h2 className="text-[36px] font-headline font-extrabold text-white tracking-tight">
                             $1,240.00 MXN
                         </h2>
                         <div className="flex items-center gap-2 mt-1">
-                            <span className="w-2 h-2 rounded-full bg-accent animate-pulse"></span>
-                            <p className="text-accent text-sm font-medium">Wallet conectada · Testnet</p>
+                            <span className="w-2.5 h-2.5 rounded-full bg-[#5DCAA5] animate-pulse shadow-[0_0_8px_#5DCAA5]"></span>
+                            <p className="text-[#5DCAA5] text-sm font-bold">Wallet conectada · Testnet</p>
                         </div>
                     </div>
                 </div>
@@ -71,15 +71,15 @@ const Home = ({ onNavigateCashout, onNavigateDeposit }: HomeProps) => {
                     <div className="bg-surface-container-low rounded-2xl p-5 flex flex-col justify-between aspect-square">
                         <span className="material-symbols-outlined text-primary text-3xl">account_balance_wallet</span>
                         <div>
-                            <p className="font-headline font-bold text-[#1A2830]">Mis activos</p>
-                            <p className="text-xs text-on-surface-variant">Ver portafolio</p>
+                            <p className="font-headline font-bold text-on-surface">Mis activos</p>
+                            <p className="text-xs text-on-surface-variant font-medium">Ver portafolio</p>
                         </div>
                     </div>
                     <div className="bg-surface-container-low rounded-2xl p-5 flex flex-col justify-between aspect-square">
                         <span className="material-symbols-outlined text-primary text-3xl">swap_horiz</span>
                         <div>
-                            <p className="font-headline font-bold text-[#1A2830]">Actividad</p>
-                            <p className="text-xs text-on-surface-variant">2 transacciones hoy</p>
+                            <p className="font-headline font-bold text-on-surface">Actividad</p>
+                            <p className="text-xs text-on-surface-variant font-medium">2 transacciones hoy</p>
                         </div>
                     </div>
                 </div>

@@ -9,24 +9,24 @@ const CashoutRequest = ({ onBack, onSearch }: CashoutRequestProps) => {
     const [amount, setAmount] = useState('500');
 
     return (
-        <div className="text-on-surface antialiased overflow-x-hidden min-h-screen bg-[#F4FAFF]">
+        <div className="text-on-surface antialiased overflow-x-hidden min-h-screen bg-surface-container-low">
             {/* TopAppBar */}
-            <header className="fixed top-0 w-full z-50 bg-[#F4FAFF] dark:bg-slate-900/80 backdrop-blur-xl shadow-[0_32px_32px_rgba(11,30,38,0.04)]">
+            <header className="fixed top-0 w-full z-50 bg-surface-container-low backdrop-blur-xl shadow-[0_32px_32px_rgba(0,105,76,0.04)]">
                 <div className="flex items-center justify-between px-6 py-4 w-full">
                     <div className="flex items-center gap-4">
                         <button 
                             onClick={onBack}
-                            className="text-[#00694C] dark:text-[#5DCAA5] active:scale-95 duration-200 p-2 hover:bg-[#E7F6FF] rounded-full"
+                            className="text-primary active:scale-95 duration-200 p-2 hover:bg-primary/10 rounded-full"
                         >
-                            <span className="material-symbols-outlined">arrow_back</span>
+                            <span className="material-symbols-outlined font-bold">arrow_back</span>
                         </button>
-                        <h1 className="font-headline font-bold text-xl tracking-tight text-[#00694C] dark:text-[#5DCAA5]">
+                        <h1 className="font-headline font-bold text-xl tracking-tight text-primary">
                             Convertir a efectivo
                         </h1>
                     </div>
                     <div className="w-10"></div> {/* Spacer for symmetry */}
                 </div>
-                <div className="bg-[#E7F6FF] dark:bg-slate-800 h-[1px] w-full self-end"></div>
+                <div className="bg-outline-variant/30 h-[1px] w-full self-end"></div>
             </header>
 
             {/* Main Content Canvas */}
@@ -54,11 +54,11 @@ const CashoutRequest = ({ onBack, onSearch }: CashoutRequestProps) => {
                         </span>
                     </div>
                     {/* Availability Chip */}
-                    <div className="mt-8 flex items-center gap-2 bg-[#E1F5EE] px-4 py-2 rounded-full">
-                        <span className="material-symbols-outlined text-primary text-sm" style={{ fontVariationSettings: '"FILL" 1' }}>
+                    <div className="mt-8 flex items-center gap-2 bg-primary/10 px-4 py-2 rounded-full border border-primary/10">
+                        <span className="material-symbols-outlined text-primary text-sm font-bold" style={{ fontVariationSettings: '"FILL" 1' }}>
                             account_balance_wallet
                         </span>
-                        <span className="text-label text-[13px] font-semibold text-primary">
+                        <span className="text-label text-[13px] font-bold text-primary">
                             Disponible: $1,240.00 MXN
                         </span>
                     </div>
