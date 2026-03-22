@@ -46,17 +46,40 @@ npm run dev
 ```
 La aplicación estará disponible en `http://localhost:5188/`.
 
-## 🔒 Seguridad e Integridad
-- **Non-Custodial**: Las llaves privadas nunca salen del cliente.
-- **HTLC (Secret Reveal)**: El intercambio de efectivo se asegura mediante un secreto que solo se revela cuando el comercio es exitoso.
-- **Gestión de Reputación**: Un sistema basado en niveles (Espora, Micelio, Hongo, Maestro) que incentiva el buen comportamiento en la red.
+## 🔒 Seguridad: Smart Escrow (HTLC) & QR
+
+La confianza en Micopay no depende de los intermediarios, sino de la criptografía. Utilizamos un sistema de **Hash Time-Locked Contracts (HTLC)** implementado en **Soroban (Stellar Smart Contracts)**.
+
+### ¿Cómo funciona el Escrow?
+1.  **`lock(secret_hash)`**: Cuando se inicia un trade, el Vendedor (quien tiene los USDC) bloquea los fondos en el contrato. Para esto, el backend genera un **Secreto Aleatorio** y solo guarda su **Hash**. Los fondos quedan "congelados" en el contrato.
+2.  **`release(secret)`**: Para liberar los fondos, el Comprador debe presentar el **Secreto original** (no el hash). El contrato verifica que `sha256(secreto) == hash_guardado`. Si coincide, transfiere los fondos al Comprador instantáneamente.
+3.  **`refund()`**: Si el intercambio físico no sucede tras un tiempo determinado (ej. 2 horas), el Vendedor puede recuperar sus fondos, evitando que queden atrapados.
+
+### El Rol del Código QR
+El QR que ves en la aplicación **ES el Secreto (Preimage)**. 
+-   **Tú (Usuario)**: Tienes el QR en tu pantalla. Eres el único que posee la "llave" para liberar el dinero del contrato.
+-   **El Agente**: Tiene el efectivo. Él no te entregará los billetes hasta que le permitas escanear el QR.
+-   **El Intercambio**: Al escanear el QR, la app del Agente obtiene el secreto, firma una transacción en su billetera y **desbloquea** los USDC del contrato inteligente hacia su propia cuenta.
+
+![QR Secret Concept](file:///C:/Users/eric/.gemini/antigravity/brain/eccb3bf5-8e77-4c92-8e00-dc1b58078d91/qr_screen_cashout_1774183983905.png)
+
+## 🏗️ Arquitectura del Sistema
+```mermaid
+graph TD
+    User((Usuario)) -->|Posee QR/Secret| Frontend[Frontend React]
+    Frontend -->|API Requests| Backend[Backend Fastify]
+    Backend -->|Postgres| DB[(Database)]
+    Backend -->|RPC Soroban| Escrow[Escrow Contract]
+    Escrow -->|Bloquea/Libera| Stellar[Red Stellar]
+    Agent((Agente)) -->|Escanea QR| Frontend
+```
 
 ---
 
-### Documentación Adicional
-- [Plan de Integración Stellar](file:///C:/Users/eric/Desktop/HACKATON/micopay_stellar_escrow_integration_plan.md)
-- [Guía de Compilación de Contratos](file:///C:/Users/eric/Desktop/HACKATON/soroban_contract_compilation_plan.md)
-- [Walkthrough Visual](file:///C:/Users/eric/.gemini/antigravity/brain/eccb3bf5-8e77-4c92-8e00-dc1b58078d91/walkthrough.md)
+### Documentación Técnica
+-   **Contrato Soroban**: [lib.rs](file:///C:/Users/eric/Desktop/HACKATON/micopay/contracts/escrow/src/lib.rs)
+-   **Integración Blockchain**: [Vea el Plan de Integración Stellar](file:///C:/Users/eric/Desktop/HACKATON/micopay_stellar_escrow_integration_plan.md)
+-   **Walkthrough de Usuario**: [Ver Demo Visual](file:///C:/Users/eric/.gemini/antigravity/brain/eccb3bf5-8e77-4c92-8e00-dc1b58078d91/walkthrough.md)
 
 ---
 *Desarrollado con ❤️ para el Stellar Hackatón 2024.*
