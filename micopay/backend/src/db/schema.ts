@@ -1,14 +1,13 @@
 import pg from 'pg';
-import { config } from '../config.js';
-
 const { Pool } = pg;
+import { config } from '../config.js';
 
 export const pool = new Pool({
   connectionString: config.databaseUrl,
 });
 
 // Test connection on startup
-pool.on('error', (err) => {
+pool.on('error', (err: Error) => {
   console.error('Unexpected PostgreSQL error:', err);
 });
 

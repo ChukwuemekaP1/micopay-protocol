@@ -25,15 +25,24 @@ function App() {
   const [activeAmount, setActiveAmount] = useState(500)
   const [tradeLoading, setTradeLoading] = useState(false)
 
-  // Auto-register buyer + mock seller on startup
+  // Auto-register buyer + mock seller on startup (persisted in localStorage)
   useEffect(() => {
     const initUsers = async () => {
       try {
+        const stored = localStorage.getItem('micopay_users')
+        if (stored) {
+          const { buyer, seller } = JSON.parse(stored)
+          setBuyerUser(buyer)
+          setSellerUser(seller)
+          console.log('✅ Users restored:', buyer.username, seller.username)
+          return
+        }
         const ts = Date.now() % 100000
         const [buyer, seller] = await Promise.all([
           registerUser(`juan_${ts}`),
           registerUser(`farmacia_${ts}`),
         ])
+        localStorage.setItem('micopay_users', JSON.stringify({ buyer, seller }))
         setBuyerUser(buyer)
         setSellerUser(seller)
         console.log('✅ Users registered:', buyer.username, seller.username)
