@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "strict": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/index.ts",
+    "src/middleware/x402.ts",
+    "src/routes/swaps.ts",
+    "src/routes/reputation.ts",
+    "src/routes/fund.ts",
+    "src/routes/services.ts",
+    "src/routes/agent.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

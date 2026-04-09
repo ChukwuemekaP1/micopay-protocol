@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "htlc-core",
+    "atomic-swap",
+    "micopay-escrow",
+]
+resolver = "2"
