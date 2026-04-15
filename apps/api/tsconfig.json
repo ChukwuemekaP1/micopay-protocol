@@ -1,28 +1,16 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "esModuleInterop": true,
-    "strict": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "declaration": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@micopay/types": ["../../packages/types/src"],
+      "@micopay/sdk": ["../../packages/sdk/src"]
+    }
   },
   "include": [
-    "src/index.ts",
-    "src/middleware/x402.ts",
-    "src/routes/swaps.ts",
-    "src/routes/fund.ts",
-    "src/routes/services.ts",
-    "src/routes/agent.ts",
-    "src/routes/demo.ts",
-    "src/lib/swapStore.ts",
-    "src/lib/soroban.ts"
+    "src/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

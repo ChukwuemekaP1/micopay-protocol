@@ -6,12 +6,18 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc"
+    "build": "tsc",
+    "seed": "tsx src/scripts/seed.ts",
+    "db:setup": "npm run seed",
+    "db:reset": "npx tsx -e \"import('./src/db/schema.js').then(m => m.query('DROP TABLE IF EXISTS merchants, swap_history, bazaar_quotes, bazaar_intents, agent_history, x402_payments CASCADE'))\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",
     "@fastify/cors": "^8.5.0",
+    "@fastify/jwt": "^10.0.0",
     "@fastify/rate-limit": "^9.1.0",
+    "@fastify/swagger": "6",
+    "@fastify/swagger-ui": "2",
     "@micopay/sdk": "*",
     "@micopay/types": "*",
     "@stellar/stellar-sdk": "^13.1.0",

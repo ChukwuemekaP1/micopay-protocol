@@ -1,19 +1,21 @@
 import type { FastifyRequest, FastifyReply, FastifyInstance } from "fastify";
 import { Networks, Transaction, Keypair } from "@stellar/stellar-sdk";
+import { isPaymentUsed, markPaymentUsed, initX402Tables, cleanupExpiredPayments } from "../db/x402.js";
 
-/**
- * x402 Payment Required middleware for Fastify.
- *
- * How it works:
- * 1. Request arrives without payment → respond 402 with challenge
- * 2. Client builds a Stellar USDC payment tx and sends it in X-PAYMENT header
- * 3. Middleware verifies the payment on-chain
- * 4. If valid, request proceeds to handler
- *
- * For the hackathon demo, we use a simplified verification:
- * - Accept a signed XDR transaction in X-PAYMENT header
- * - Verify the payment destination, amount, and asset
- */
+let x402Initialized = false;
+
+async function ensureX402Initialized() {
+  if (x402Initialized) return;
+  try {
+    await initX402Tables();
+    await cleanupExpiredPayments();
+    x402Initialized = true;
+  } catch (error) {
+    console.warn('x402 DB init failed (will use in-memory fallback):', error);
+  }
+}
+
+let useDatabase = false;
 
 function getPlatformAddress(): string {
   const secret = process.env.PLATFORM_SECRET_KEY;
@@ -72,7 +74,7 @@ export function requirePayment(config: X402Config) {
 
     // Verify the payment
     try {
-      const payer = await verifyPayment(paymentHeader, config.amount);
+      const payer = await verifyPayment(paymentHeader, config.amount, config.service);
       // Attach payer address to request for use in handlers
       (request as FastifyRequest & { payerAddress: string }).payerAddress = payer;
     } catch (err) {
@@ -87,10 +89,7 @@ export function requirePayment(config: X402Config) {
 }
 
 /**
- * In-memory replay protection: tracks tx hashes seen this session.
- * Prevents the same signed XDR from being reused across multiple requests.
- * Does not survive server restart — production would use a persistent store
- * (Redis / DB) with TTL matching the Stellar transaction timeout (~5 min).
+ * In-memory fallback for replay protection when DB is unavailable.
  */
 const usedTxHashes = new Set<string>();
 
@@ -103,12 +102,11 @@ const usedTxHashes = new Set<string>();
  * - The XDR parses as a valid Stellar transaction
  * - The transaction has at least one payment operation to PLATFORM_ADDRESS
  * - The amount meets the minimum
- * - The transaction hash has not been seen before (replay protection)
- *
- * Production hardening: submit the tx on-chain and await confirmation.
+ * - The transaction hash has not been seen before (replay protection via PostgreSQL)
  */
-async function verifyPayment(xdrBase64: string, minAmountUsdc: string): Promise<string> {
-  // Mock mode: accept any payment header that starts with "mock:"
+async function verifyPayment(xdrBase64: string, minAmountUsdc: string, service: string): Promise<string> {
+  await ensureX402Initialized();
+
   if (xdrBase64.startsWith("mock:")) {
     return xdrBase64.replace("mock:", "").split(":")[0] ?? "GTEST_PAYER";
   }
@@ -117,13 +115,19 @@ async function verifyPayment(xdrBase64: string, minAmountUsdc: string): Promise<
     const tx = new Transaction(xdrBase64, NETWORK_PASSPHRASE);
     const payer = tx.source;
 
-    // Replay protection — reject if this tx was already accepted
     const txHash = Buffer.from(tx.hash()).toString("hex");
-    if (usedTxHashes.has(txHash)) {
-      throw new Error(`Payment already used: ${txHash.slice(0, 16)}...`);
+
+    if (useDatabase) {
+      const alreadyUsed = await isPaymentUsed(txHash);
+      if (alreadyUsed) {
+        throw new Error(`Payment already used: ${txHash.slice(0, 16)}...`);
+      }
+    } else {
+      if (usedTxHashes.has(txHash)) {
+        throw new Error(`Payment already used: ${txHash.slice(0, 16)}...`);
+      }
     }
 
-    // Check operations for a payment to our address
     let foundPayment = false;
     for (const op of tx.operations) {
       if (
@@ -146,8 +150,11 @@ async function verifyPayment(xdrBase64: string, minAmountUsdc: string): Promise<
       );
     }
 
-    // Mark tx as used — prevents replay for the lifetime of this server process
-    usedTxHashes.add(txHash);
+    if (useDatabase) {
+      await markPaymentUsed(txHash, payer, minAmountUsdc, service);
+    } else {
+      usedTxHashes.add(txHash);
+    }
 
     return payer;
   } catch (err) {

@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 import { ConflictError } from '../utils/errors.js';
 
-export async function userRoutes(app: FastifyInstance) {
+export async function userRoutes(app: FastifyInstance & { jwt: any }) {
   /**
    * POST /users/register
    * Create a new user + wallet. Returns a JWT so the user is immediately authenticated.
@@ -68,7 +68,7 @@ export async function userRoutes(app: FastifyInstance) {
    */
   app.get('/users/me', {
     preHandler: [authMiddleware],
-  }, async (request) => {
+  }, async (request: any) => {
     const userId = request.user.id;
 
     const user = await db.getOne(

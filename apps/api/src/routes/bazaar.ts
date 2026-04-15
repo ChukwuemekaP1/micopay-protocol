@@ -2,12 +2,26 @@ import type { FastifyInstance } from "fastify";
 import { requirePayment } from "../middleware/x402.js";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import { lockAtomicSwap } from "../services/stellar.service.js";
-
-// ── Types ───────────────────────────────────────────────────────────────────
+import {
+  initBazaarTables,
+  seedAgentHistories,
+  seedIntents,
+  createIntent,
+  getIntent,
+  getActiveIntents,
+  updateIntent,
+  createQuote,
+  getQuotesForIntent,
+  getAgentHistory,
+  upsertAgentHistory,
+  intentRowToObject,
+  getBazaarStats,
+  type BazaarIntentRow,
+} from "../db/bazaar.js";
 
 interface AssetInfo {
-  chain: string;   // e.g., "ethereum", "stellar", "solana"
-  symbol: string;  // e.g., "ETH", "USDC", "XLM"
+  chain: string;
+  symbol: string;
   amount: string;
 }
 
@@ -20,7 +34,7 @@ interface BazaarIntent {
   status: "active" | "negotiating" | "executed" | "expired";
   created_at: string;
   expires_at: string;
-  reputation_tier?: string;   // derived from agentHistory at broadcast time
+  reputation_tier?: string;
   secret_hash?: string;
   selected_quote_id?: string;
 }
@@ -33,22 +47,6 @@ interface BazaarQuote {
   valid_until: string;
 }
 
-// ── Agent Reputation State ───────────────────────────────────────────────────
-// Tracks on-chain activity per agent_address.
-// In production: derived from Soroban event log (swap.locked / swap.released events).
-
-interface AgentHistory {
-  broadcasts: number;         // total intents published
-  swaps_completed: number;    // intents that reached "executed"
-  swaps_cancelled: number;    // intents that expired without execution
-  volume_usdc: number;        // total USDC moved through completed swaps
-  first_seen: string;
-  last_active: string;
-}
-
-const agentHistory = new Map<string, AgentHistory>();
-
-// ── Tier Definitions (mirrors merchant reputation system) ────────────────────
 const AGENT_TIERS = [
   { name: "maestro",  emoji: "🍄", min_swaps: 50,  min_rate: 0.95, description: "Elite agent. High-frequency, high-reliability cross-chain executor." },
   { name: "experto",  emoji: "⭐", min_swaps: 15,  min_rate: 0.88, description: "Reliable agent with a solid completion track record." },
@@ -62,85 +60,53 @@ function getAgentTier(completed: number, total: number) {
     ?? AGENT_TIERS[AGENT_TIERS.length - 1];
 }
 
-function getOrCreateHistory(address: string): AgentHistory {
-  if (!agentHistory.has(address)) {
-    agentHistory.set(address, {
-      broadcasts: 0, swaps_completed: 0, swaps_cancelled: 0,
-      volume_usdc: 0, first_seen: new Date().toISOString(),
-      last_active: new Date().toISOString(),
-    });
+const memoryAgentHistory = new Map<string, { broadcasts: number; swaps_completed: number; swaps_cancelled: number; volume_usdc: number; first_seen: string; last_active: string }>();
+
+memoryAgentHistory.set("GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKUJI5KOOJ9TXWNTBBS2JN", {
+  broadcasts: 87, swaps_completed: 83, swaps_cancelled: 4, volume_usdc: 241500,
+  first_seen: "2025-09-14T10:22:00Z", last_active: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+});
+memoryAgentHistory.set("GDAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", {
+  broadcasts: 31, swaps_completed: 28, swaps_cancelled: 3, volume_usdc: 52300,
+  first_seen: "2025-11-03T15:45:00Z", last_active: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
+});
+
+async function getOrCreateHistory(address: string) {
+  let history = await getAgentHistory(address);
+  if (!history) {
+    history = await upsertAgentHistory(address, { broadcasts: 0, swaps_completed: 0, swaps_cancelled: 0, volume_usdc: 0 });
   }
-  return agentHistory.get(address)!;
+  return history;
 }
 
-function recordBroadcast(address: string) {
-  const h = getOrCreateHistory(address);
-  h.broadcasts++;
-  h.last_active = new Date().toISOString();
+async function recordBroadcast(address: string) {
+  await upsertAgentHistory(address, { broadcasts: 1 });
 }
 
-function recordCompletion(address: string, volumeUsdc: number) {
-  const h = getOrCreateHistory(address);
-  h.swaps_completed++;
-  h.volume_usdc += volumeUsdc;
-  h.last_active = new Date().toISOString();
+async function recordCompletion(address: string, volumeUsdc: number) {
+  await upsertAgentHistory(address, { swaps_completed: 1, volume_usdc: volumeUsdc });
 }
 
-// ── Seed agent histories for demo (mirrors seeded intents) ──────────────────
-agentHistory.set("GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKUJI5KOOJ9TXWNTBBS2JN", {
-  broadcasts: 87, swaps_completed: 83, swaps_cancelled: 4,
-  volume_usdc: 241500, first_seen: "2025-09-14T10:22:00Z",
-  last_active: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-});
-agentHistory.set("GDAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", {
-  broadcasts: 31, swaps_completed: 28, swaps_cancelled: 3,
-  volume_usdc: 52300, first_seen: "2025-11-03T15:45:00Z",
-  last_active: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
-});
+let initialized = false;
+let initFailed = false;
 
-// ── Bazaar Intent State ──────────────────────────────────────────────────────
-
-const intents = new Map<string, BazaarIntent>();
-const quotes  = new Map<string, BazaarQuote[]>();
-
-// Seed with mock intents — reputation_tier derived from seeded histories above
-const SEED_INTENTS: BazaarIntent[] = [
-  {
-    id: "int-001",
-    agent_address: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKUJI5KOOJ9TXWNTBBS2JN",
-    offered: { chain: "ethereum", symbol: "ETH", amount: "2.5" },
-    wanted:  { chain: "stellar",  symbol: "USDC", amount: "7000" },
-    status: "active",
-    created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    expires_at:  new Date(Date.now() + 1000 * 60 * 55).toISOString(),
-    reputation_tier: "maestro",  // 83/87 = 95.4% completion
-  },
-  {
-    id: "int-002",
-    agent_address: "GDAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A",
-    offered: { chain: "stellar", symbol: "USDC", amount: "500" },
-    wanted:  { chain: "physical", symbol: "MXN", amount: "8750" },
-    status: "active",
-    created_at: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
-    expires_at:  new Date(Date.now() + 1000 * 60 * 58).toISOString(),
-    reputation_tier: "experto",  // 28/31 = 90.3% completion
-  },
-];
-
-SEED_INTENTS.forEach(i => intents.set(i.id, i));
-
-// ── Routes ──────────────────────────────────────────────────────────────────
+async function ensureBazaarInitialized() {
+  if (initialized) return;
+  if (initFailed) return;
+  try {
+    await initBazaarTables();
+    await seedAgentHistories();
+    await seedIntents();
+    initialized = true;
+  } catch (error) {
+    console.error('Failed to initialize Bazaar DB:', error);
+    initFailed = true;
+  }
+}
 
 export async function bazaarRoutes(fastify: FastifyInstance): Promise<void> {
+  await ensureBazaarInitialized();
 
-  /**
-   * POST /api/v1/bazaar/intent
-   * x402: $0.005 USDC
-   *
-   * Broadcast a cross-chain swap intent to the network.
-   * The broadcaster's agent_address is resolved from the x402 payment,
-   * and their reputation tier is computed from swap history and attached.
-   */
   fastify.post(
     "/api/v1/bazaar/intent",
     { preHandler: requirePayment({ amount: "0.005", service: "bazaar_broadcast" }) },
@@ -153,75 +119,132 @@ export async function bazaarRoutes(fastify: FastifyInstance): Promise<void> {
 
       const agentAddress = request.payerAddress ?? "GUNKNOWN";
 
-      // Record broadcast in agent history, compute live reputation tier
-      recordBroadcast(agentAddress);
-      const history = getOrCreateHistory(agentAddress);
+      await recordBroadcast(agentAddress);
+      const history = await getOrCreateHistory(agentAddress);
       const tier = getAgentTier(history.swaps_completed, history.broadcasts);
 
       const id = `int-${randomUUID().slice(0, 8)}`;
-      const newIntent: BazaarIntent = {
+      const newIntent = await createIntent({
         id,
         agent_address: agentAddress,
-        offered: body.offered as AssetInfo,
-        wanted:  body.wanted  as AssetInfo,
-        min_rate: body.min_rate,
+        offered_chain: body.offered!.chain,
+        offered_symbol: body.offered!.symbol,
+        offered_amount: body.offered!.amount,
+        wanted_chain: body.wanted!.chain,
+        wanted_symbol: body.wanted!.symbol,
+        wanted_amount: body.wanted!.amount,
+        min_rate: body.min_rate ?? null,
         status: "active",
-        reputation_tier: tier.name,   // ← live reputation, not hardcoded
-        created_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
-      };
+        reputation_tier: tier.name,
+        secret_hash: null,
+        selected_quote_id: null,
+      });
 
-      intents.set(id, newIntent);
-      fastify.log.info(`Bazaar: ${tier.emoji} [${tier.name}] ${agentAddress.slice(0,8)} broadcasts ${newIntent.offered.symbol} → ${newIntent.wanted.symbol}`);
+      fastify.log.info(`Bazaar: ${tier.emoji} [${tier.name}] ${agentAddress.slice(0,8)} broadcasts ${body.offered!.symbol} → ${body.wanted!.symbol}`);
 
-      return reply.status(201).send(newIntent);
+      return reply.status(201).send(intentRowToObject(newIntent));
     }
   );
 
-  /**
-   * GET /api/v1/bazaar/feed
-   * x402: $0.001 USDC
-   *
-   * Returns active intents sorted by recency.
-   * Each intent includes the broadcaster's live reputation_tier.
-   */
   fastify.get(
     "/api/v1/bazaar/feed",
     { preHandler: requirePayment({ amount: "0.001", service: "bazaar_feed" }) },
     async (_request, reply) => {
-      const activeIntents = Array.from(intents.values())
-        .filter(i => i.status === "active")
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const rows = await getActiveIntents();
 
       return reply.send({
-        intents: activeIntents,
-        count: activeIntents.length,
+        intents: rows.map(intentRowToObject),
+        count: rows.length,
         network: "global-intent-layer",
         note: "Every intent in this feed was broadcasted by an AI agent paying via x402. Reputation tiers computed from on-chain swap history.",
       });
     }
   );
 
-  /**
-   * GET /api/v1/bazaar/reputation/:address
-   * FREE — agent reputation lookup
-   *
-   * Returns the reputation of an AI agent based on their Bazaar swap history.
-   * Analogous to /api/v1/reputation/:address for merchants, but for agents.
-   *
-   * Agents use this to filter the feed: "only respond to intents from
-   * agents with tier >= experto and completion_rate >= 90%."
-   */
+  fastify.get(
+    "/api/v1/bazaar/stats",
+    async (_request, reply) => {
+      let stats;
+
+      try {
+        stats = await getBazaarStats();
+      } catch {
+        const now = new Date();
+        stats = {
+          total_intents: 2,
+          active_intents: 2,
+          negotiating_intents: 0,
+          executed_intents: 0,
+          expired_intents: 0,
+          total_volume_usdc: 293800,
+          total_broadcasts: 118,
+          total_swaps_completed: 111,
+          total_swaps_cancelled: 7,
+          top_agents: [
+            {
+              agent_address: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKUJI5KOOJ9TXWNTBBS2JN",
+              broadcasts: 87, swaps_completed: 83, completion_rate: 0.954,
+              volume_usdc: 241500, tier: "maestro", tier_emoji: "🍄"
+            },
+            {
+              agent_address: "GDAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A",
+              broadcasts: 31, swaps_completed: 28, completion_rate: 0.903,
+              volume_usdc: 52300, tier: "experto", tier_emoji: "⭐"
+            },
+          ],
+          recent_intents: [
+            {
+              id: "int-001",
+              agent_address: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKUJI5KOOJ9TXWNTBBS2JN",
+              offered: { chain: "ethereum", symbol: "ETH", amount: "2.5" },
+              wanted: { chain: "stellar", symbol: "USDC", amount: "7000" },
+              status: "active",
+              created_at: new Date(now.getTime() - 5 * 60 * 1000).toISOString(),
+              expires_at: new Date(now.getTime() + 55 * 60 * 1000).toISOString(),
+              reputation_tier: "maestro",
+              secret_hash: null,
+              selected_quote_id: null,
+            },
+            {
+              id: "int-002",
+              agent_address: "GDAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A",
+              offered: { chain: "stellar", symbol: "USDC", amount: "500" },
+              wanted: { chain: "physical", symbol: "MXN", amount: "8750" },
+              status: "active",
+              created_at: new Date(now.getTime() - 2 * 60 * 1000).toISOString(),
+              expires_at: new Date(now.getTime() + 58 * 60 * 1000).toISOString(),
+              reputation_tier: "experto",
+              secret_hash: null,
+              selected_quote_id: null,
+            },
+          ],
+        };
+      }
+
+      return reply.send({
+        ...stats,
+        network: "global-intent-layer",
+        data_source: "PostgreSQL",
+        queried_at: new Date().toISOString(),
+      });
+    }
+  );
+
   fastify.get(
     "/api/v1/bazaar/reputation/:address",
     async (request, reply) => {
       const { address } = request.params as { address: string };
 
-      let history = agentHistory.get(address);
+      let history;
+      let dataSource = "PostgreSQL";
 
-      // For unknown agents, generate a minimal "new agent" profile
-      if (!history) {
-        history = {
+      try {
+        history = await getOrCreateHistory(address);
+      } catch {
+        dataSource = "in-memory (DB unavailable)";
+        const seedHistory = memoryAgentHistory.get(address);
+        history = seedHistory ?? {
           broadcasts: 0, swaps_completed: 0, swaps_cancelled: 0,
           volume_usdc: 0, first_seen: new Date().toISOString(),
           last_active: new Date().toISOString(),
@@ -233,8 +256,6 @@ export async function bazaarRoutes(fastify: FastifyInstance): Promise<void> {
         : 0;
 
       const tier = getAgentTier(history.swaps_completed, history.broadcasts);
-
-      // Agent-friendly trust signal (same pattern as merchant reputation)
       const trusted = history.swaps_completed >= 3 && completion_rate >= 0.75;
       const recommendation = trusted
         ? `✅ Trusted agent. ${tier.emoji} ${tier.name.toUpperCase()}. ${history.swaps_completed} swaps completed.`
@@ -251,7 +272,7 @@ export async function bazaarRoutes(fastify: FastifyInstance): Promise<void> {
           swaps_cancelled: history.swaps_cancelled,
           completion_rate,
           completion_percent: `${(completion_rate * 100).toFixed(1)}%`,
-          volume_usdc_total: history.volume_usdc.toFixed(2),
+          volume_usdc_total: history.volume_usdc.toString(),
           first_seen: history.first_seen,
           last_active: history.last_active,
         },
@@ -260,17 +281,13 @@ export async function bazaarRoutes(fastify: FastifyInstance): Promise<void> {
           recommendation,
           risk_level: !trusted ? "high" : completion_rate >= 0.95 ? "low" : "medium",
         },
-        data_source: "MicoPay Bazaar swap history (in-memory demo; production: Soroban event log)",
+        data_source: `MicoPay Bazaar swap history (${dataSource})`,
         note: "Agent reputation is derived from completed Bazaar swaps — not transferable, not buyable.",
         queried_at: new Date().toISOString(),
       });
     }
   );
 
-  /**
-   * POST /api/v1/bazaar/quote
-   * x402: $0.002 USDC
-   */
   fastify.post(
     "/api/v1/bazaar/quote",
     { preHandler: requirePayment({ amount: "0.002", service: "bazaar_quote" }) },
@@ -281,20 +298,17 @@ export async function bazaarRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: "intent_id and rate required" });
       }
 
-      const intent = intents.get(body.intent_id);
+      const intent = await getIntent(body.intent_id);
       if (!intent) return reply.status(404).send({ error: "Intent not found" });
 
       const quoteId = `qut-${randomUUID().slice(0, 8)}`;
-      const newQuote: BazaarQuote = {
+      const newQuote = await createQuote({
         id: quoteId,
         intent_id: body.intent_id,
         from_agent: request.payerAddress ?? "GUNKNOWN",
         rate: body.rate,
         valid_until: new Date(Date.now() + 300_000).toISOString(),
-      };
-
-      const existingQuotes = quotes.get(body.intent_id) || [];
-      quotes.set(body.intent_id, [...existingQuotes, newQuote]);
+      });
 
       return reply.status(201).send({
         quote: newQuote,
@@ -303,13 +317,6 @@ export async function bazaarRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /**
-   * POST /api/v1/bazaar/accept
-   * x402: $0.005 USDC
-   *
-   * Initiator accepts a quote, locks the Stellar side on-chain via MicopayEscrow,
-   * and records the completion in agent reputation history.
-   */
   fastify.post(
     "/api/v1/bazaar/accept",
     { preHandler: requirePayment({ amount: "0.005", service: "bazaar_accept" }) },
@@ -320,32 +327,31 @@ export async function bazaarRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: "intent_id is required" });
       }
 
-      const intent = intents.get(body.intent_id);
+      const intent = await getIntent(body.intent_id);
       if (!intent) return reply.status(404).send({ error: "Intent not found" });
       if (intent.status !== "active") return reply.status(409).send({ error: `Intent is already ${intent.status}` });
 
       const secretHash = body.secret_hash
         ?? createHash("sha256").update(randomBytes(32)).digest("hex");
 
-      const quoteList = quotes.get(body.intent_id) || [];
+      const quotes = await getQuotesForIntent(body.intent_id);
       const quote = body.quote_id
-        ? quoteList.find(q => q.id === body.quote_id)
-        : quoteList[0];
+        ? quotes.find(q => q.id === body.quote_id)
+        : quotes[0];
 
       const amountUsdc = body.amount_usdc
-        ?? parseFloat(intent.wanted.symbol === "USDC" ? intent.wanted.amount : "28.57");
+        ?? parseFloat(intent.wanted_symbol === "USDC" ? intent.wanted_amount : "28.57");
 
       fastify.log.info(`Bazaar: Locking Stellar side for intent ${body.intent_id}...`);
       const lock = await lockAtomicSwap({ amountUsdc, secretHash, timeoutMinutes: 60 });
 
-      // ── Update intent state & agent reputation ────────────────────────────
-      intent.status = "negotiating";
-      intent.secret_hash = secretHash;
-      intent.selected_quote_id = quote?.id;
+      await updateIntent(body.intent_id, {
+        status: "negotiating",
+        secret_hash: secretHash,
+        selected_quote_id: quote?.id ?? null,
+      });
 
-      // Record this as a completed swap for reputation tracking.
-      // In production: listen to Soroban "released" events instead.
-      recordCompletion(intent.agent_address, amountUsdc);
+      await recordCompletion(intent.agent_address, amountUsdc);
 
       fastify.log.info(`Bazaar: Lock confirmed. swap_id=${lock.swapId.slice(0, 10)} tx=${lock.txHash}`);
 

@@ -3,6 +3,7 @@ members = [
     "htlc-core",
     "atomic-swap",
     "micopay-escrow",
+    "micopay-badges",
 ]
 resolver = "2"
 

@@ -6,7 +6,7 @@ import { config } from '../config.js';
 // In-memory challenge store (for MVP; use Redis in production)
 const challenges = new Map<string, { challenge: string; expiresAt: number }>();
 
-export async function authRoutes(app: FastifyInstance) {
+export async function authRoutes(app: FastifyInstance & { jwt: any }) {
   /**
    * POST /auth/challenge
    * Generate a challenge for a Stellar address to sign (simplified SEP-10).

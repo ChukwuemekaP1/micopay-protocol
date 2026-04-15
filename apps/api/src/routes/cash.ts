@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { requirePayment } from "../middleware/x402.js";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import * as StellarSdk from "@stellar/stellar-sdk";
+import { findNearbyProviders, getTopProviders, MERCHANTS_DATA } from "../services/p2p.js";
 
 const RPC_URL  = process.env.STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org";
 const NET      = StellarSdk.Networks.TESTNET;
@@ -75,76 +76,8 @@ async function lockEscrow(
 }
 
 // ── Mock merchant network (replaces live P2P backend connection - roadmap) ──
-const MERCHANTS = [
-  {
-    id: "GM001",
-    stellar_address: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKUJI5KOOJ9TXWNTBBS2JN",
-    name: "Farmacia Guadalupe",
-    type: "farmacia",
-    address: "Orizaba 45, Col. Roma Norte, CDMX",
-    lat: 19.4195,
-    lng: -99.1627,
-    available_mxn: 5000,
-    max_trade_mxn: 3000,
-    min_trade_mxn: 100,
-    tier: "maestro",
-    completion_rate: 0.98,
-    trades_completed: 312,
-    avg_time_minutes: 4,
-    online: true,
-  },
-  {
-    id: "GM002",
-    stellar_address: "GDAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A",
-    name: "Tienda Don Pepe",
-    type: "tienda",
-    address: "Álvaro Obregón 180, Col. Roma Norte, CDMX",
-    lat: 19.4181,
-    lng: -99.1644,
-    available_mxn: 2500,
-    max_trade_mxn: 2000,
-    min_trade_mxn: 50,
-    tier: "experto",
-    completion_rate: 0.94,
-    trades_completed: 89,
-    avg_time_minutes: 7,
-    online: true,
-  },
-  {
-    id: "GM003",
-    stellar_address: "GBZXN7PIRZGNMHGA7MUUUF4GWMTISGNQ5E72TFL6GDWPE6K4RCAVOALV",
-    name: "Abarrotes La Esperanza",
-    type: "abarrotes",
-    address: "Sonora 195, Col. Hipódromo Condesa, CDMX",
-    lat: 19.4121,
-    lng: -99.1718,
-    available_mxn: 1200,
-    max_trade_mxn: 1000,
-    min_trade_mxn: 100,
-    tier: "experto",
-    completion_rate: 0.91,
-    trades_completed: 54,
-    avg_time_minutes: 10,
-    online: true,
-  },
-  {
-    id: "GM004",
-    stellar_address: "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4B",
-    name: "Mini Super Estrella",
-    type: "minisuper",
-    address: "Insurgentes Sur 300, Col. Hipódromo, CDMX",
-    lat: 19.408,
-    lng: -99.169,
-    available_mxn: 800,
-    max_trade_mxn: 500,
-    min_trade_mxn: 50,
-    tier: "espora",
-    completion_rate: 0.71,
-    trades_completed: 8,
-    avg_time_minutes: 18,
-    online: false,
-  },
-];
+// Using data from P2P matching engine
+export const MERCHANTS = MERCHANTS_DATA;
 
 // Base URL for claim pages — where AI agents send users to show their QR
 // In production: https://app.micopay.xyz
@@ -166,7 +99,7 @@ const cashRequests = new Map<string, {
   payer_address: string;
 }>();
 
-function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+export function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -212,28 +145,64 @@ export async function cashRoutes(fastify: FastifyInstance): Promise<void> {
       const lng = parseFloat(query.lng ?? "-99.1627");
       const amount = parseInt(query.amount ?? "500", 10);
       const limit = Math.min(parseInt(query.limit ?? "5", 10), 10);
+      const radiusKm = Math.min(parseInt(query.radius ?? "50", 10), 100);
 
       const rate = await getUsdcMxnRate();
 
-      const results = MERCHANTS
-        .filter((m) => m.online && m.available_mxn >= amount && m.max_trade_mxn >= amount)
-        .map((m) => ({
-          ...m,
-          distance_km: parseFloat(distanceKm(lat, lng, m.lat, m.lng).toFixed(2)),
+      let results;
+      try {
+        const topProviders = getTopProviders({ lat, lng, amount }, limit);
+        results = topProviders.map((p) => ({
+          id: p.id,
+          stellar_address: p.stellar_address,
+          name: p.name,
+          type: p.type,
+          address: p.address,
+          distance_km: p.distance_km,
+          available_mxn: p.available_mxn,
+          max_trade_mxn: p.max_trade_mxn,
+          min_trade_mxn: p.min_trade_mxn,
+          tier: p.tier,
+          reputation: p.reputation,
+          completion_rate: p.completion_rate,
+          trades_completed: p.trades_completed,
+          avg_time_minutes: p.avg_time_minutes,
+          online: p.online,
+          score: p.score,
           usdc_rate: parseFloat((1 / rate).toFixed(6)),
           amount_usdc_needed: parseFloat((amount / rate).toFixed(4)),
-        }))
-        .sort((a, b) => a.distance_km - b.distance_km)
-        .slice(0, limit)
-        .map(({ lat: _lat, lng: _lng, id: _id, ...m }) => m);
+        }));
+      } catch {
+        const nearby = findNearbyProviders(lat, lng, radiusKm, amount);
+        results = nearby.slice(0, limit).map((m) => ({
+          id: m.id,
+          stellar_address: m.stellar_address,
+          name: m.name,
+          type: m.type,
+          address: m.address,
+          distance_km: parseFloat(distanceKm(lat, lng, m.lat, m.lng).toFixed(2)),
+          available_mxn: m.available_mxn,
+          max_trade_mxn: m.max_trade_mxn,
+          min_trade_mxn: m.min_trade_mxn,
+          tier: m.tier,
+          reputation: m.reputation,
+          completion_rate: m.completion_rate,
+          trades_completed: m.trades_completed,
+          avg_time_minutes: m.avg_time_minutes,
+          online: m.online,
+          usdc_rate: parseFloat((1 / rate).toFixed(6)),
+          amount_usdc_needed: parseFloat((amount / rate).toFixed(4)),
+        }));
+      }
 
       return reply.send({
         agents: results,
         count: results.length,
-        query: { lat, lng, amount_mxn: amount },
+        query: { lat, lng, amount_mxn: amount, radius_km: radiusKm },
         usdc_mxn_rate: rate,
         network: process.env.STELLAR_NETWORK ?? "TESTNET",
-        note: "Merchants from MicoPay P2P network. Rates from Stellar Horizon testnet.",
+        note: "Merchants from MicoPay P2P network with P2P matching engine. Rates from Stellar Horizon testnet.",
+        matching_engine: "p2p-v1",
       });
     }
   );
