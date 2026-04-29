@@ -3,7 +3,13 @@ import db from "../db/schema.js";
 import { config } from "../config.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { deleteAccount } from "../services/account.service.js";
+import { createRateLimiter } from '../middleware/rateLimit.middleware.js';
 import { ConflictError } from "../utils/errors.js";
+
+const authRateLimit = createRateLimiter({
+  windowMs: config.authRateLimitWindowMs,
+  max: config.authRateLimitMax,
+});
 
 export async function userRoutes(app: FastifyInstance) {
   /**
@@ -13,6 +19,7 @@ export async function userRoutes(app: FastifyInstance) {
   app.post(
     "/users/register",
     {
+      preHandler: [authRateLimit],
       schema: {
         body: {
           type: "object",
